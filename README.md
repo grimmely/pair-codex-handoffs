@@ -70,6 +70,9 @@ type `$handoff`. Ask it to send, receive, inspect status, or configure storage.
 It asks for confirmation immediately before cloning, importing, committing, or
 pushing.
 
+Use `$handoff help` for a short command menu. It explains `send`, `receive`,
+`status`, and `configure` without changing state.
+
 The skill is also available in [`skills/handoff`](skills/handoff). Another
 harness can provide a thin native command adapter that calls the same Fish
 dispatcher.

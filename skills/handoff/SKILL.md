@@ -25,6 +25,22 @@ fish "<pair-codex-home>/tools/pair-codex-handoffs/scripts/pair-handoff.fish"
 
 For a standalone checkout, use its `scripts/pair-handoff.fish` path instead.
 
+## Help
+
+For `handoff help`, return this command menu without running a command or
+changing state:
+
+- `handoff send` — create and share a handoff from the current project.
+- `handoff receive <share URL|latest>` — inspect and import a received handoff.
+- `handoff status` — show storage configuration and health.
+- `handoff configure` — select or replace the private storage repository.
+
+For command-line help, run:
+
+```fish
+fish "<dispatcher>" help
+```
+
 ## Configure
 
 For `handoff configure`, first explain that the user must create a private
