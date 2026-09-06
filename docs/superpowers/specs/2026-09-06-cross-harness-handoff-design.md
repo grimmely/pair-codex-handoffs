@@ -47,7 +47,7 @@ The registry makes future adapters additive. The only supported adapter in
 this release is `codex`. Its exporter and importer remain Codex-specific.
 
 ```text
-handoffs/codex/YYYY-MM-DD/<timestamp>-<session-id>/
+handoffs/codex/YYYY/MM/DD/<timestamp>-<session-id>/
 ```
 
 An unknown harness fails before writing data.

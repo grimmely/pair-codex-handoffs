@@ -117,13 +117,15 @@ and Git publishing remain shared.
 ```text
 handoffs/
   codex/
-    YYYY-MM-DD/
-      <timestamp>-<session-id>/
-        HANDOFF.md
-        transcript.md
-        session.codex-session.tar.gz
-        source-status.txt
-        source.patch                # only when tracked changes exist
+    YYYY/
+      MM/
+        DD/
+          <timestamp>-<session-id>/
+            HANDOFF.md
+            transcript.md
+            session.codex-session.tar.gz
+            source-status.txt
+            source.patch                # only when tracked changes exist
 ```
 
 Every handoff becomes one commit on `main`. The generated share URL points to

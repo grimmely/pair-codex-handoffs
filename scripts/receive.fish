@@ -34,7 +34,7 @@ function handoff_exists_in_commit --argument-names storage_root commit_sha hando
 end
 
 function handoff_relative_dir_pattern --argument-names harness
-    printf '%s\n' "handoffs/$harness/[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    printf '%s\n' "handoffs/$harness/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 end
 
 function latest_handoff_relative_dir --argument-names storage_root storage_commit harness
@@ -550,6 +550,13 @@ else if test "$handoff_source_type" = local
     end
     if not pair_handoff_path_is_within "$handoff_dir" "$harness_root"
         fail "Handoff directory must be within configured $harness storage: $storage_root/handoffs/$harness"
+    end
+    set expected_handoff_relative_dir (handoff_relative_dir_pattern "$harness")
+    set escaped_storage_root (string escape --style=regex -- "$resolved_storage_root")
+    set local_handoff_relative_dir (string replace -r "^$escaped_storage_root/" '' -- "$handoff_dir")
+    if not set -q local_handoff_relative_dir[1]; or \
+        not string match -rq "^$expected_handoff_relative_dir\$" -- "$local_handoff_relative_dir"
+        fail "Handoff directory must use the configured $harness date layout."
     end
 else
     fail 'Handoff source type is unsupported.'

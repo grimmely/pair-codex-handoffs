@@ -365,7 +365,8 @@ if not session_matches_source "$session_id" "$source_root" "$codex_home"
 end
 
 set timestamp (date -u '+%Y-%m-%dT%H-%M-%SZ')
-set handoff_date (date -u '+%Y-%m-%d')
+set handoff_date (string replace -r 'T.*$' '' -- "$timestamp")
+set handoff_date (string replace -a '-' '/' -- "$handoff_date")
 set handoff_id "$timestamp-$session_id"
 set relative_dir "handoffs/$harness/$handoff_date/$handoff_id"
 set output_dir "$handoff_root/$relative_dir"
