@@ -12,15 +12,18 @@ ships a reusable `handoff` skill.
 
 ## Before starting
 
-1. Create a **private** GitHub repository for handoff storage, initialized on
-   `main`.
+1. Create a **private** GitHub repository for handoff storage. It may be empty.
 2. Give your pair collaborator write access to it.
-3. Ensure its default branch is `main`.
-4. Authenticate GitHub CLI so this succeeds:
+3. Authenticate GitHub CLI so this succeeds:
 
    ```fish
    gh repo view OWNER/PRIVATE-HANDOFF-STORAGE
    ```
+
+When it observes no Git refs, configuration pushes one empty `main` commit.
+If the repository already has Git content, the tool leaves it untouched and
+requires `main` to be its default branch. Do not have two people initialize
+the same storage repository concurrently.
 
 The tool refuses public repositories. Archives, transcripts, and patches are
 plaintext in Git: compression saves space; it does not encrypt content.

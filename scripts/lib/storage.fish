@@ -87,9 +87,27 @@ function pair_handoff_github_slug_from_remote --argument-names remote_url
     end
 end
 
+function pair_handoff_repository_metadata --argument-names storage_repo
+    gh api --hostname github.com "repos/$storage_repo" \
+        --jq '[.private, (.default_branch // ""), (.permissions.push // false)] | @tsv' 2>/dev/null
+end
+
+function pair_handoff_verify_private_writable_main_or_unset --argument-names storage_repo
+    set repository_metadata (pair_handoff_repository_metadata "$storage_repo")
+    or return 1
+    set metadata_fields (string split \t -- "$repository_metadata")
+
+    test (count $metadata_fields) -eq 3
+    and test "$metadata_fields[1]" = true
+    and begin
+        test -z "$metadata_fields[2]"
+        or test "$metadata_fields[2]" = main
+    end
+    and test "$metadata_fields[3]" = true
+end
+
 function pair_handoff_verify_private_main --argument-names storage_repo
-    set repository_metadata (gh api --hostname github.com "repos/$storage_repo" \
-        --jq '[.private, (.default_branch // ""), (.permissions.push // false)] | @tsv' 2>/dev/null)
+    set repository_metadata (pair_handoff_repository_metadata "$storage_repo")
     or return 1
     set metadata_fields (string split \t -- "$repository_metadata")
 
@@ -99,7 +117,7 @@ function pair_handoff_verify_private_main --argument-names storage_repo
     and test "$metadata_fields[3]" = true
 end
 
-function pair_handoff_validate_storage_checkout --argument-names storage_repo checkout
+function pair_handoff_validate_storage_checkout_identity --argument-names storage_repo checkout
     pair_handoff_validate_storage_repo "$storage_repo"
     or return 1
     test -d "$checkout"
@@ -127,8 +145,17 @@ function pair_handoff_validate_storage_checkout --argument-names storage_repo ch
         test "$push_slug" = "$storage_repo"
         or return 1
     end
+end
 
+function pair_handoff_validate_storage_checkout --argument-names storage_repo checkout
+    pair_handoff_validate_storage_checkout_identity "$storage_repo" "$checkout"
+    or return 1
+
+    set resolved_checkout (path resolve -- "$checkout")
+    or return 1
     test (git -C "$resolved_checkout" branch --show-current) = main
+    or return 1
+    git -C "$resolved_checkout" ls-remote --exit-code --heads origin refs/heads/main >/dev/null 2>&1
 end
 
 function pair_handoff_path_is_within --argument-names candidate parent

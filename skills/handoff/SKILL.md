@@ -44,8 +44,11 @@ fish "<dispatcher>" help
 ## Configure
 
 For `handoff configure`, first explain that the user must create a private
-GitHub `owner/repo`, give their pair write access, make `main` its default branch,
-and ensure `gh repo view owner/repo` succeeds.
+GitHub `owner/repo`, give their pair write access, and ensure
+`gh repo view owner/repo` succeeds. It may be empty: configuration pushes one
+empty `main` init commit. If it already has Git content, it must already default
+to `main`; configuration never changes existing branch or content. Do not have
+two people initialize the same storage repository concurrently.
 
 Ask for the repository only when it is missing. Show the exact pending command
 and explain that it validates, clones, and changes local configuration. Request
