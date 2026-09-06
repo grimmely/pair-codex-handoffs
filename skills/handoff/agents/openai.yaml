@@ -1,0 +1,7 @@
+interface:
+  display_name: "Handoff"
+  short_description: "Share or receive a private async pair handoff"
+  default_prompt: "Use $handoff to hand off this session to my pair."
+
+policy:
+  allow_implicit_invocation: true

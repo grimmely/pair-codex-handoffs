@@ -1,102 +1,149 @@
 # Pair Codex Handoffs
 
-Private, Git-backed async handoffs for two Codex collaborators.
+Public, Fish-based tooling for private async pair-programming handoffs.
 
-One handoff contains readable context, an importable Codex session, and source
-state needed to continue work after a sleep-cycle handoff.
+The tool creates a readable work summary, a compressed resumable session, and
+a source-state patch. It pushes those files only to **your private storage
+repository** and returns a GitHub URL for your pair.
 
-## Requirements
+Use [Pair Codex Setup](https://github.com/grimmely/pair-codex-setup) for the
+complete Codex pairing environment. This repository also works standalone and
+ships a reusable `handoff` skill.
 
-- Fish 4+
-- Git
-- `tar` with gzip support
-- Node.js (already required by `codex-session-exporter`)
-- GitHub CLI: `gh auth login`
-- `codex-session-exporter` in `PATH`
+## Before starting
 
-The sender verifies that `origin`, every `origin.pushurl`, and GitHub privacy
-all resolve to `grimmely/pair-codex-handoffs` before exporting anything.
-The handoff remote must use SSH or HTTPS; plaintext HTTP is rejected.
+1. Create a **private** GitHub repository for handoff storage, initialized on
+   `main`.
+2. Give your pair collaborator write access to it.
+3. Ensure its default branch is `main`.
+4. Authenticate GitHub CLI so this succeeds:
 
-## Send a handoff
+   ```fish
+   gh repo view OWNER/PRIVATE-HANDOFF-STORAGE
+   ```
 
-From this repository's root:
+The tool refuses public repositories. Archives, transcripts, and patches are
+plaintext in Git: compression saves space; it does not encrypt content.
+
+## Install paths
+
+### Complete Codex setup
 
 ```fish
-fish scripts/handoff.fish \
-  --handoff-repo /path/to/pair-codex-handoffs \
+git clone https://github.com/grimmely/pair-codex-setup.git
+cd pair-codex-setup
+bash install.sh
+```
+
+The installer asks for the private storage repository, validates it, installs
+the tool and `handoff` skill, then configures the local storage checkout.
+
+### Standalone tool
+
+```fish
+git clone https://github.com/grimmely/pair-codex-handoffs.git
+cd pair-codex-handoffs
+fish scripts/pair-handoff.fish configure \
+  --storage-repo OWNER/PRIVATE-HANDOFF-STORAGE
+```
+
+Configuration is local. Change it later without replacing old checkouts:
+
+```fish
+fish scripts/pair-handoff.fish configure \
+  --storage-repo OWNER/ANOTHER-PRIVATE-STORAGE
+```
+
+After pulling a newer public tool, explicitly refresh the copied global skill:
+
+```fish
+fish scripts/sync-handoff-skill.fish
+```
+
+It preserves the previous global skill below
+the Pair Codex home (by default `$HOME/.pair-codex/handoff-skill-backups/`)
+before publishing the refreshed one. Start a new Codex session after a first
+install or skill refresh.
+
+## Use from Codex
+
+After Pair Codex Setup, choose `handoff` from Codex’s slash-command list or
+type `$handoff`. Ask it to send, receive, inspect status, or configure storage.
+It asks for confirmation immediately before cloning, importing, committing, or
+pushing.
+
+The skill is also available in [`skills/handoff`](skills/handoff). Another
+harness can provide a thin native command adapter that calls the same Fish
+dispatcher.
+
+## Command line
+
+```fish
+# Show storage configuration and supported harnesses.
+fish scripts/pair-handoff.fish status
+
+# Create a handoff from the newest session in this project.
+fish scripts/pair-handoff.fish send \
+  --harness codex \
   --source-repo /path/to/project \
-  --codex-home /path/to/codex-home \
   --note "Continue the payment retry work."
+
+# Receive a handoff from the GitHub commit URL shared by your pair.
+fish scripts/pair-handoff.fish receive \
+  --harness codex \
+  --handoff https://github.com/OWNER/PRIVATE-HANDOFF-STORAGE/commit/COMMIT \
+  --target-cwd /path/to/project
 ```
 
-The script selects the newest local Codex session whose resolved working
-directory is the source project or a directory beneath it. To choose one
-explicitly, pass its ID; the same project-boundary check still applies.
+`send` uses the active `CODEX_HOME`, or `~/.codex` when unset. Add
+`--codex-home /path/to/codex-home` for a shell outside that environment.
 
-```fish
-fish scripts/handoff.fish \
-  --handoff-repo /path/to/pair-codex-handoffs \
-  --source-repo /path/to/project \
-  --codex-home /path/to/codex-home \
-  --session-id <session-id>
-```
+## Supported harnesses
 
-Use one shared handoff-repository branch. The first handoff publishes its
-current branch and configures its upstream automatically.
+| Harness | Session export and import | Native command |
+| --- | --- | --- |
+| Codex | Supported | `handoff` skill / `$handoff` |
 
-Each handoff is one Git commit:
+The command surface is prepared for more harnesses. An added adapter owns only
+its session export/import behavior and command syntax; storage, safety checks,
+and Git publishing remain shared.
+
+## Storage layout
 
 ```text
-handoffs/YYYY/MM/<timestamp>-<session-id>/
-  HANDOFF.md
-  transcript.md
-  session.codex-session.tar.gz
-  source-status.txt
-  source.patch              # only when tracked source changes exist
+handoffs/
+  codex/
+    YYYY-MM-DD/
+      <timestamp>-<session-id>/
+        HANDOFF.md
+        transcript.md
+        session.codex-session.tar.gz
+        source-status.txt
+        source.patch                # only when tracked changes exist
 ```
 
-`source.patch` includes tracked staged and unstaged changes, including an
-unborn source repository. Untracked files are only listed in
-`source-status.txt`.
+Every handoff becomes one commit on `main`. The generated share URL points to
+that commit in your private storage repository.
 
-Source remote metadata has credentials, query strings, and fragments removed
-before it is written to `HANDOFF.md`.
+## Safety model
 
-## Receive a handoff
+- Share storage only with trusted pair writers; imported conversation content is
+  collaborator-provided data.
+- Requires `fish`, `git`, `gh`, `tar`, Node.js, and `codex-session-exporter`.
+- Validates configured storage remote, every push URL, private visibility, and
+  `main` before sending or receiving.
+- Refuses paths outside the selected harness directory.
+- Receives commit URLs only from configured `main` history and materializes
+  the exact committed bundle, never a later working-tree replacement.
+- Warns above 50 MiB and refuses handoffs at 100 MiB.
+- Validates the compressed bundle before import; refuses symbolic links,
+  unexpected archive entries, unsafe paths, and existing session IDs.
+- Strips sender approval, sandbox, permission, and network policy from an
+  imported session; receiver policy remains local.
+- Never checks out sender commits or applies `source.patch` automatically.
 
-Pull the shared handoff branch, inspect `HANDOFF.md`, then run from this
-repository's root:
+Review a patch before applying it:
 
 ```fish
-fish scripts/receive.fish \
-  --handoff-dir /path/to/pair-codex-handoffs/handoffs/YYYY/MM/<id> \
-  --target-cwd /path/to/project \
-  --codex-home /path/to/codex-home
+git apply --check /path/to/source.patch
 ```
-
-Before import, the receiver copies the archive to a private temporary
-directory and accepts only the exact expected bundle tree:
-
-- regular files and directories only; no links or special files
-- fewer than 100 MiB compressed and unpacked
-- manifest rebuilt with fixed internal file paths
-- rollout path restricted to a matching session ID under Codex session roots
-- session-ID collisions refused rather than replacing a local session
-
-It never checks out a commit or applies `source.patch` automatically. Review
-the patch, then run `git apply --check` before any manual apply.
-
-`--codex-home` selects the Codex session store. It defaults to `CODEX_HOME`
-when set, otherwise `~/.codex`. Omit it for that default. Pass it explicitly
-when running from a shell outside the Codex process, such as Pair Codex Sessions.
-
-## Storage and privacy
-
-Bundles use `tar.gz`, then remain plaintext in Git.
-
-- Keep this repository private.
-- Never hand off credentials you would not commit.
-- Warn above 50 MiB total handoff size; stop at 100 MiB.
-- Git history retains past bundles after deletion.
-- Compression reduces space; it does not encrypt content.

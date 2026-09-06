@@ -1,13 +1,16 @@
 #!/usr/bin/env fish
 
-set -g expected_handoff_repo 'grimmely/pair-codex-handoffs'
+set script_dir (path dirname (status filename))
+source "$script_dir/lib/harnesses.fish"
+source "$script_dir/lib/storage.fish"
+
 set -g warning_threshold_bytes 52428800
 set -g maximum_handoff_bytes 104857600
 set -g tar_overhead_reserve_bytes 65536
 
 function usage
     printf '%s\n' 'Usage:'
-    printf '%s\n' '  fish scripts/handoff.fish --handoff-repo <path> --source-repo <path> [--codex-home <path>] [--session-id <id>] [--note <text>]'
+    printf '%s\n' '  fish scripts/pair-handoff.fish send --source-repo <path> [--harness codex] [--codex-home <path>] [--session-id <id>] [--note <text>]'
 end
 
 function fail
@@ -39,19 +42,8 @@ function cleanup_pending_handoff --argument-names handoff_root relative_dir outp
     end
 end
 
-function github_slug_from_remote --argument-names remote_url
-    set slug (string replace -r '^git@github\.com:' '' -- "$remote_url")
-    set slug (string replace -r '^ssh://git@github\.com/' '' -- "$slug")
-    set slug (string replace -r '^https://([^/@]+@)?github\.com/' '' -- "$slug")
-    set slug (string replace -r '\.git$' '' -- "$slug")
-
-    if string match -rq '^[^/]+/[^/]+$' -- "$slug"
-        printf '%s\n' "$slug"
-    end
-end
-
 function github_commit_url --argument-names remote_url commit_sha
-    set repo_slug (github_slug_from_remote "$remote_url")
+    set repo_slug (pair_handoff_github_slug_from_remote "$remote_url")
     if set -q repo_slug[1]
         printf 'https://github.com/%s/commit/%s\n' "$repo_slug" "$commit_sha"
     end
@@ -95,6 +87,32 @@ function session_matches_source --argument-names session_id source_root codex_ho
     set candidate_cwd (session_cwd "$session_id" "$codex_home")
     or return 1
     path_is_within "$candidate_cwd" "$source_root"
+end
+
+function handoff_destination_is_safe --argument-names handoff_root relative_dir
+    set resolved_handoff_root (path resolve -- "$handoff_root")
+    if not set -q resolved_handoff_root[1]
+        return 1
+    end
+
+    set candidate "$resolved_handoff_root"
+    for component in (string split / -- "$relative_dir")
+        if test -z "$component"; or test "$component" = .; or test "$component" = ..
+            return 1
+        end
+
+        set candidate "$candidate/$component"
+        if test -L "$candidate"
+            return 1
+        end
+
+        if test -e "$candidate"
+            set resolved_candidate (path resolve -- "$candidate")
+            if not set -q resolved_candidate[1]; or not pair_handoff_path_is_within "$resolved_candidate" "$resolved_handoff_root"
+                return 1
+            end
+        end
+    end
 end
 
 function handoff_size_is_safe --argument-names handoff_dir
@@ -198,7 +216,7 @@ end
 
 argparse \
     'h/help' \
-    'handoff-repo=' \
+    'harness=' \
     'source-repo=' \
     'codex-home=' \
     'session-id=' \
@@ -214,15 +232,17 @@ if set -q _flag_help
     exit 0
 end
 
-if not set -q _flag_handoff_repo
-    usage
-    fail 'Missing --handoff-repo.'
-end
-
 if not set -q _flag_source_repo
     usage
     fail 'Missing --source-repo.'
 end
+
+set harness codex
+if set -q _flag_harness
+    set harness "$_flag_harness"
+end
+pair_handoff_require_supported_harness "$harness"
+or exit 1
 
 for command_name in codex-session-exporter git tar gh
     require_command "$command_name"
@@ -241,19 +261,21 @@ if not set -q codex_home[1]; or not test -d "$codex_home"
     fail "Codex home does not exist: $requested_codex_home"
 end
 
-if not test -d "$_flag_handoff_repo"
-    fail "Handoff repository does not exist: $_flag_handoff_repo"
-end
-
 if not test -d "$_flag_source_repo"
     fail "Source repository does not exist: $_flag_source_repo"
 end
 
-set handoff_root (git -C "$_flag_handoff_repo" rev-parse --show-toplevel 2>/dev/null)
-if not set -q handoff_root[1]
-    fail "Not a Git repository: $_flag_handoff_repo"
+set storage_repo (pair_handoff_read_storage_repo)
+if not set -q storage_repo[1]
+    fail 'No storage repository is configured. Run /handoff configure first.'
 end
-set handoff_root (path resolve -- "$handoff_root")
+
+set handoff_root (pair_handoff_storage_checkout "$storage_repo")
+if not set -q handoff_root[1]
+    fail 'Could not resolve the configured storage checkout.'
+end
+pair_handoff_validate_storage_checkout "$storage_repo" "$handoff_root"
+or fail "Configured storage checkout does not match $storage_repo: $handoff_root"
 
 set source_root (git -C "$_flag_source_repo" rev-parse --show-toplevel 2>/dev/null)
 if not set -q source_root[1]
@@ -264,6 +286,9 @@ set source_root (path resolve -- "$source_root")
 set handoff_branch (git -C "$handoff_root" branch --show-current)
 if not set -q handoff_branch[1]
     fail 'Handoff repository must be on a local branch.'
+end
+if test "$handoff_branch" != main
+    fail 'Handoff storage must use the main branch.'
 end
 
 set handoff_status (git -C "$handoff_root" status --porcelain)
@@ -276,32 +301,37 @@ if not set -q remote_url[1]
     fail "Handoff repository has no origin remote: $handoff_root"
 end
 
-set remote_slug (github_slug_from_remote "$remote_url")
-if not set -q remote_slug[1]; or test "$remote_slug" != "$expected_handoff_repo"
-    fail "Handoff origin must be GitHub repository: $expected_handoff_repo"
+set remote_slug (pair_handoff_github_slug_from_remote "$remote_url")
+if not set -q remote_slug[1]; or test "$remote_slug" != "$storage_repo"
+    fail "Handoff origin must be configured storage repository: $storage_repo"
 end
 
 set push_urls (git -C "$handoff_root" remote get-url --push --all origin 2>/dev/null)
 if not set -q push_urls[1]
-    fail "Handoff origin has no push URL: $expected_handoff_repo"
+    fail "Handoff origin has no push URL: $storage_repo"
 end
 
 for push_url in $push_urls
-    set push_slug (github_slug_from_remote "$push_url")
-    if not set -q push_slug[1]; or test "$push_slug" != "$expected_handoff_repo"
-        fail "Every handoff push URL must be GitHub repository: $expected_handoff_repo"
+    set push_slug (pair_handoff_github_slug_from_remote "$push_url")
+    if not set -q push_slug[1]; or test "$push_slug" != "$storage_repo"
+        fail "Every handoff push URL must be configured storage repository: $storage_repo"
     end
 end
 
-set repo_private (gh repo view "$expected_handoff_repo" --json isPrivate --jq '.isPrivate' 2>/dev/null)
-if test "$repo_private" != true
-    fail "Handoff repository must be private: $expected_handoff_repo"
-end
+pair_handoff_verify_private_main "$storage_repo"
+or fail "Handoff storage must be private, writable through gh, and use main: $storage_repo"
 
 set handoff_upstream (git -C "$handoff_root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
-if set -q handoff_upstream[1]
-    git -C "$handoff_root" pull --ff-only origin "$handoff_branch"
-    or fail 'Could not fast-forward the handoff repository from origin.'
+if not set -q handoff_upstream[1]; or test "$handoff_upstream" != origin/main
+    fail 'Handoff storage main branch must track origin/main.'
+end
+git -C "$handoff_root" pull --ff-only origin main
+or fail 'Could not fast-forward the handoff storage from origin/main.'
+set fetched_handoff_commit (git -C "$handoff_root" rev-parse --verify FETCH_HEAD^{commit} 2>/dev/null)
+set current_handoff_commit (git -C "$handoff_root" rev-parse --verify HEAD^{commit} 2>/dev/null)
+if not set -q fetched_handoff_commit[1]; or not set -q current_handoff_commit[1]; or \
+    test "$fetched_handoff_commit" != "$current_handoff_commit"
+    fail 'Handoff storage main is not exactly the fetched origin/main commit.'
 end
 
 set session_id
@@ -335,13 +365,15 @@ if not session_matches_source "$session_id" "$source_root" "$codex_home"
 end
 
 set timestamp (date -u '+%Y-%m-%dT%H-%M-%SZ')
-set year (date -u '+%Y')
-set month (date -u '+%m')
+set handoff_date (date -u '+%Y-%m-%d')
 set handoff_id "$timestamp-$session_id"
-set relative_dir "handoffs/$year/$month/$handoff_id"
+set relative_dir "handoffs/$harness/$handoff_date/$handoff_id"
 set output_dir "$handoff_root/$relative_dir"
 
-if test -e "$output_dir"
+handoff_destination_is_safe "$handoff_root" "$relative_dir"
+or fail 'Configured handoff destination must not contain symbolic links or leave storage.'
+
+if test -e "$output_dir"; or test -L "$output_dir"
     fail "Handoff already exists: $output_dir"
 end
 
@@ -430,6 +462,7 @@ end
 begin
     printf '# Async pair handoff\n\n'
     printf '%s\n' "- Created (UTC): \`$timestamp\`"
+    printf '%s\n' "- Harness: \`$harness\`"
     printf '%s\n' "- Codex session: \`$session_id\`"
     printf '%s\n' "- Source repository: \`$source_remote\`"
     printf '%s\n' "- Source commit: \`$source_commit\`"
@@ -519,12 +552,12 @@ or begin
     fail 'Could not commit handoff files.'
 end
 
-if set -q handoff_upstream[1]
-    git -C "$handoff_root" push origin "$handoff_branch"
-else
-    git -C "$handoff_root" push --set-upstream origin "$handoff_branch"
+if not git -C "$handoff_root" push origin main
+    git -C "$handoff_root" pull --rebase origin main
+    or fail 'Handoff was committed locally, but rebase hit a conflict. Run: git status; resolve it, then git rebase --continue (or git rebase --abort), then git push origin main.'
+    git -C "$handoff_root" push origin main
+    or fail 'Handoff was rebased onto origin/main, but push still failed. Recover with: git push origin main'
 end
-or fail 'Handoff was committed locally, but push failed. Retry: git push origin <branch>.'
 
 set commit_sha (git -C "$handoff_root" rev-parse HEAD)
 set share_url (github_commit_url "$remote_url" "$commit_sha")

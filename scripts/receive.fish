@@ -1,8 +1,13 @@
 #!/usr/bin/env fish
 
+set script_dir (path dirname (status filename))
+source "$script_dir/lib/harnesses.fish"
+source "$script_dir/lib/storage.fish"
+
 function usage
     printf '%s\n' 'Usage:'
-    printf '%s\n' '  fish scripts/receive.fish --handoff-dir <path> --target-cwd <source-project-path> [--codex-home <path>]'
+    printf '%s\n' '  fish scripts/pair-handoff.fish receive --handoff <shared-url|handoffs/path|latest> --target-cwd <source-project-path> [--harness codex] [--codex-home <path>]'
+    printf '%s\n' '  fish scripts/pair-handoff.fish receive --handoff-dir <path> --target-cwd <source-project-path> [--harness codex] [--codex-home <path>]'
 end
 
 function fail
@@ -20,6 +25,94 @@ function cleanup_extraction --argument-names extraction_dir
     if test -n "$extraction_dir"; and test -d "$extraction_dir"
         command rm -rf "$extraction_dir"
     end
+end
+
+function handoff_exists_in_commit --argument-names storage_root commit_sha handoff_relative_dir
+    set handoff_type (git -C "$storage_root" cat-file -t \
+        "$commit_sha:$handoff_relative_dir/HANDOFF.md" 2>/dev/null)
+    test "$handoff_type" = blob
+end
+
+function handoff_relative_dir_pattern --argument-names harness
+    printf '%s\n' "handoffs/$harness/[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+end
+
+function latest_handoff_relative_dir --argument-names storage_root storage_commit harness
+    set handoff_relative_dir (handoff_relative_dir_pattern "$harness")
+    set handoff_relative_pattern "^($handoff_relative_dir)/HANDOFF\\.md\$"
+    set handoff_paths (git -C "$storage_root" log --format= --name-only "$storage_commit" -- \
+        "handoffs/$harness" | string match -r --groups-only "$handoff_relative_pattern")
+
+    for handoff_path in $handoff_paths
+        if handoff_exists_in_commit "$storage_root" "$storage_commit" "$handoff_path"
+            printf '%s\n' "$handoff_path"
+            return 0
+        end
+    end
+    return 1
+end
+
+function resolve_handoff_source --argument-names handoff_reference storage_root storage_repo harness
+    set handoff_relative_dir_pattern (handoff_relative_dir_pattern "$harness")
+    set handoff_relative_pattern "^$handoff_relative_dir_pattern\$"
+    set storage_commit (git -C "$storage_root" rev-parse --verify HEAD^{commit} 2>/dev/null)
+    if not set -q storage_commit[1]
+        return 1
+    end
+
+    if test "$handoff_reference" = latest
+        set handoff_relative_dir (latest_handoff_relative_dir "$storage_root" "$storage_commit" "$harness")
+        if not set -q handoff_relative_dir[1]
+            return 1
+        end
+        printf '%s\n' git "$storage_commit" "$handoff_relative_dir"
+        return 0
+    end
+
+    set url_match (string match -r --groups-only \
+        '^https://github\\.com/([^/]+/[^/]+)/commit/([0-9A-Fa-f]{7,64})/?(?:[?#].*)?$' \
+        -- "$handoff_reference")
+    if set -q url_match[1]
+        if test (count $url_match) -ne 2; or test "$url_match[1]" != "$storage_repo"
+            return 1
+        end
+
+        set handoff_commit (git -C "$storage_root" rev-parse --verify "$url_match[2]^{commit}" 2>/dev/null)
+        if not set -q handoff_commit[1]
+            return 1
+        end
+        git -C "$storage_root" merge-base --is-ancestor "$handoff_commit" "$storage_commit"
+        or return 1
+
+        set handoff_paths (git -C "$storage_root" diff-tree --root --no-commit-id --name-only -r \
+            "$handoff_commit" | string match -r --groups-only \
+            "^($handoff_relative_dir_pattern)/HANDOFF\\.md\$")
+        if test (count $handoff_paths) -ne 1
+            return 1
+        end
+        if not handoff_exists_in_commit "$storage_root" "$handoff_commit" "$handoff_paths[1]"
+            return 1
+        end
+        printf '%s\n' git "$handoff_commit" "$handoff_paths[1]"
+        return 0
+    end
+
+    if string match -rq '^handoffs/' -- "$handoff_reference"
+        if not string match -rq "$handoff_relative_pattern" -- "$handoff_reference"
+            return 1
+        end
+        if not handoff_exists_in_commit "$storage_root" "$storage_commit" "$handoff_reference"
+            return 1
+        end
+        printf '%s\n' git "$storage_commit" "$handoff_reference"
+        return 0
+    end
+
+    set local_handoff_dir (path resolve -- "$handoff_reference")
+    if not set -q local_handoff_dir[1]
+        return 1
+    end
+    printf '%s\n' local "$local_handoff_dir"
 end
 
 function validate_archive --argument-names archive_path
@@ -209,8 +302,8 @@ const manifestPath = path.join(bundleDir, "manifest.json");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const sessionId = String(manifest.sessionId || "");
 const rolloutPath = String(manifest.paths?.rolloutRelativePath || "");
-const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const rolloutPattern = /^(?:sessions|archived_sessions)\/\d{4}\/\d{2}\/\d{2}\/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const rolloutPattern = /^(?:sessions|archived_sessions)\/\d{4}\/\d{2}\/\d{2}\/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
 const rolloutMatch = rolloutPath.match(rolloutPattern);
 
 if (manifest.formatVersion !== 1) {
@@ -219,7 +312,7 @@ if (manifest.formatVersion !== 1) {
 if (!sessionIdPattern.test(sessionId)) {
   throw new Error("Bundle manifest has an invalid session ID.");
 }
-if (!rolloutMatch || rolloutMatch[1].toLowerCase() !== sessionId.toLowerCase()) {
+if (!rolloutMatch || rolloutMatch[1] !== sessionId) {
   throw new Error("Bundle manifest has an unsafe rollout path.");
 }
 
@@ -252,7 +345,82 @@ console.log(sessionId);
 ' "$bundle_dir"
 end
 
-argparse 'h/help' 'handoff-dir=' 'target-cwd=' 'codex-home=' -- $argv
+function sanitize_sender_execution_context --argument-names bundle_dir target_cwd
+    node -e '
+const fs = require("node:fs");
+const path = require("node:path");
+
+function readObject(filePath) {
+  const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${path.basename(filePath)} must contain a JSON object.`);
+  }
+  return value;
+}
+
+function writeAtomically(filePath, value) {
+  const temporaryPath = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, value, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  fs.renameSync(temporaryPath, filePath);
+}
+
+try {
+  const bundleDir = process.argv[1];
+  const targetCwd = process.argv[2];
+  const rawDirectory = path.join(bundleDir, "raw");
+  const threadPath = path.join(rawDirectory, "thread.json");
+  const sessionPath = path.join(rawDirectory, "session.jsonl");
+  const thread = readObject(threadPath);
+
+  // Receiver policy belongs to the receiving Codex installation, not the sender.
+  delete thread.approval_mode;
+  delete thread.approval_policy;
+  delete thread.sandbox_policy;
+  writeAtomically(threadPath, `${JSON.stringify(thread, null, 2)}\n`);
+
+  const policyKeys = [
+    "active_permission_profile",
+    "approval_mode",
+    "approval_policy",
+    "approvals_reviewer",
+    "file_system_sandbox_policy",
+    "network",
+    "permission_profile",
+    "sandbox_policy",
+  ];
+  const source = fs.readFileSync(sessionPath, "utf8");
+  const sanitizedLines = source.split(/\r?\n/).map((line) => {
+    if (!line.trim()) {
+      return line;
+    }
+
+    try {
+      const record = JSON.parse(line);
+      if (record?.type !== "turn_context" || !record.payload ||
+          typeof record.payload !== "object" || Array.isArray(record.payload)) {
+        return line;
+      }
+
+      for (const key of policyKeys) {
+        delete record.payload[key];
+      }
+      record.payload.cwd = targetCwd;
+      record.payload.workspace_roots = [targetCwd];
+      return JSON.stringify(record);
+    } catch {
+      return line;
+    }
+  });
+
+  writeAtomically(sessionPath, `${sanitizedLines.join("\n").replace(/\n+$/, "")}\n`);
+} catch (error) {
+  console.error(`error: ${error.message}`);
+  process.exitCode = 1;
+}
+' "$bundle_dir" "$target_cwd"
+end
+
+argparse 'h/help' 'harness=' 'handoff=' 'handoff-dir=' 'target-cwd=' 'codex-home=' -- $argv
 or begin
     usage
     exit 2
@@ -263,9 +431,14 @@ if set -q _flag_help
     exit 0
 end
 
-if not set -q _flag_handoff_dir
+if not set -q _flag_handoff; and not set -q _flag_handoff_dir
     usage
-    fail 'Missing --handoff-dir.'
+    fail 'Missing --handoff or --handoff-dir.'
+end
+
+if set -q _flag_handoff; and set -q _flag_handoff_dir
+    usage
+    fail 'Use either --handoff or --handoff-dir, not both.'
 end
 
 if not set -q _flag_target_cwd
@@ -273,7 +446,14 @@ if not set -q _flag_target_cwd
     fail 'Missing --target-cwd.'
 end
 
-for command_name in codex-session-exporter tar node cp mktemp
+set harness codex
+if set -q _flag_harness
+    set harness "$_flag_harness"
+end
+pair_handoff_require_supported_harness "$harness"
+or exit 1
+
+for command_name in codex-session-exporter tar node cp mktemp git gh
     require_command "$command_name"
 end
 
@@ -290,17 +470,45 @@ if not set -q codex_home[1]; or not test -d "$codex_home"
     fail "Codex home does not exist: $requested_codex_home"
 end
 
-if not test -d "$_flag_handoff_dir"
-    fail "Handoff directory does not exist: $_flag_handoff_dir"
-end
-
 if not test -d "$_flag_target_cwd"
     fail "Target working directory does not exist: $_flag_target_cwd"
 end
 
-set handoff_dir (path resolve -- "$_flag_handoff_dir")
-if not set -q handoff_dir[1]
-    fail "Could not resolve handoff directory: $_flag_handoff_dir"
+set storage_repo (pair_handoff_read_storage_repo)
+if not set -q storage_repo[1]
+    fail 'No storage repository is configured. Run /handoff configure first.'
+end
+
+set storage_root (pair_handoff_storage_checkout "$storage_repo")
+if not set -q storage_root[1]
+    fail 'Could not resolve the configured storage checkout.'
+end
+pair_handoff_validate_storage_checkout "$storage_repo" "$storage_root"
+or fail "Configured storage checkout does not match $storage_repo: $storage_root"
+
+pair_handoff_verify_private_main "$storage_repo"
+or fail "Handoff storage must be private, writable through gh, and use main: $storage_repo"
+
+set storage_status (git -C "$storage_root" status --porcelain)
+if set -q storage_status[1]
+    fail "Handoff storage has uncommitted changes: $storage_root"
+end
+git -C "$storage_root" pull --ff-only origin main
+or fail 'Could not fast-forward handoff storage from origin/main.'
+set fetched_storage_commit (git -C "$storage_root" rev-parse --verify FETCH_HEAD^{commit} 2>/dev/null)
+set current_storage_commit (git -C "$storage_root" rev-parse --verify HEAD^{commit} 2>/dev/null)
+if not set -q fetched_storage_commit[1]; or not set -q current_storage_commit[1]; or \
+    test "$fetched_storage_commit" != "$current_storage_commit"
+    fail 'Handoff storage main is not exactly the fetched origin/main commit.'
+end
+
+set handoff_reference "$_flag_handoff_dir"
+if set -q _flag_handoff
+    set handoff_reference "$_flag_handoff"
+end
+set handoff_source (resolve_handoff_source "$handoff_reference" "$storage_root" "$storage_repo" "$harness")
+if not set -q handoff_source[1]
+    fail "Could not resolve a configured $harness handoff from: $handoff_reference"
 end
 
 set target_cwd (path resolve -- "$_flag_target_cwd")
@@ -308,16 +516,44 @@ if not set -q target_cwd[1]
     fail "Could not resolve target working directory: $_flag_target_cwd"
 end
 
-set bundle_archive "$handoff_dir/session.codex-session.tar.gz"
-if not test -f "$bundle_archive"
-    fail "Compressed bundle does not exist: $bundle_archive"
+set resolved_storage_root (path resolve -- "$storage_root")
+if not set -q resolved_storage_root[1]
+    fail "Could not resolve configured $harness storage: $storage_root/handoffs/$harness"
 end
-if test -L "$bundle_archive"
-    fail "Compressed bundle must not be a symbolic link: $bundle_archive"
+set storage_handoffs_root "$resolved_storage_root/handoffs"
+if test -L "$storage_handoffs_root"; or test -L "$storage_handoffs_root/$harness"
+    fail "Configured $harness storage must not use symbolic links."
+end
+set harness_root (path resolve -- "$storage_handoffs_root/$harness")
+if not set -q harness_root[1]; or not pair_handoff_path_is_within "$harness_root" "$resolved_storage_root"
+    fail "Could not resolve configured $harness storage: $storage_root/handoffs/$harness"
 end
 
-validate_archive "$bundle_archive"
-or fail 'Compressed bundle failed structural safety checks.'
+set handoff_source_type "$handoff_source[1]"
+set handoff_dir
+set handoff_commit
+set handoff_relative_dir
+if test "$handoff_source_type" = git
+    if test (count $handoff_source) -ne 3
+        fail 'Git handoff source is malformed.'
+    end
+    set handoff_commit "$handoff_source[2]"
+    set handoff_relative_dir "$handoff_source[3]"
+    set handoff_dir "$storage_root/$handoff_relative_dir"
+else if test "$handoff_source_type" = local
+    if test (count $handoff_source) -ne 2
+        fail 'Local handoff source is malformed.'
+    end
+    set handoff_dir (path resolve -- "$handoff_source[2]")
+    if not set -q handoff_dir[1]; or not test -d "$handoff_dir"
+        fail "Handoff directory does not exist: $handoff_source[2]"
+    end
+    if not pair_handoff_path_is_within "$handoff_dir" "$harness_root"
+        fail "Handoff directory must be within configured $harness storage: $storage_root/handoffs/$harness"
+    end
+else
+    fail 'Handoff source type is unsupported.'
+end
 
 set extraction_dir (mktemp -d)
 if not set -q extraction_dir[1]
@@ -325,10 +561,33 @@ if not set -q extraction_dir[1]
 end
 
 set local_archive "$extraction_dir/session.codex-session.tar.gz"
-command cp "$bundle_archive" "$local_archive"
-or begin
-    cleanup_extraction "$extraction_dir"
-    fail 'Could not copy the compressed bundle into secure temporary storage.'
+if test "$handoff_source_type" = git
+    set archive_object "$handoff_commit:$handoff_relative_dir/session.codex-session.tar.gz"
+    set archive_type (git -C "$storage_root" cat-file -t "$archive_object" 2>/dev/null)
+    if test "$archive_type" != blob
+        cleanup_extraction "$extraction_dir"
+        fail 'Committed handoff bundle is not a regular Git blob.'
+    end
+    git -C "$storage_root" cat-file blob "$archive_object" > "$local_archive"
+    or begin
+        cleanup_extraction "$extraction_dir"
+        fail 'Could not materialize the committed handoff bundle.'
+    end
+else
+    set bundle_archive "$handoff_dir/session.codex-session.tar.gz"
+    if not test -f "$bundle_archive"
+        cleanup_extraction "$extraction_dir"
+        fail "Compressed bundle does not exist: $bundle_archive"
+    end
+    if test -L "$bundle_archive"
+        cleanup_extraction "$extraction_dir"
+        fail 'Compressed bundle must not be a symbolic link.'
+    end
+    command cp "$bundle_archive" "$local_archive"
+    or begin
+        cleanup_extraction "$extraction_dir"
+        fail 'Could not copy the compressed bundle into secure temporary storage.'
+    end
 end
 
 validate_archive "$local_archive"
@@ -364,6 +623,12 @@ if not set -q imported_session_id[1]
     fail 'Bundle manifest failed path-safety validation.'
 end
 
+sanitize_sender_execution_context "$bundle_dir" "$target_cwd"
+or begin
+    cleanup_extraction "$extraction_dir"
+    fail 'Bundle execution context could not be sanitized for this receiver.'
+end
+
 if codex-session-exporter inspect "$imported_session_id" --codex-home "$codex_home" >/dev/null 2>&1
     cleanup_extraction "$extraction_dir"
     fail "A local Codex session already uses this ID: $imported_session_id"
@@ -378,12 +643,25 @@ if test "$import_status" -ne 0
     exit "$import_status"
 end
 
-printf '%s\n' "Transcript: $handoff_dir/transcript.md"
-if test -f "$handoff_dir/source.patch"
-    printf '%s\n' "Tracked source patch: $handoff_dir/source.patch"
-    printf '%s\n' 'Review it before applying with git apply --check.'
-end
+if test "$handoff_source_type" = git
+    set handoff_url "https://github.com/$storage_repo/tree/$handoff_commit/$handoff_relative_dir"
+    printf '%s\n' "Handoff: $handoff_url"
+    printf '%s\n' "Transcript: $handoff_url/transcript.md"
+    if git -C "$storage_root" cat-file -e "$handoff_commit:$handoff_relative_dir/source.patch" 2>/dev/null
+        printf '%s\n' "Tracked source patch: $handoff_url/source.patch"
+        printf '%s\n' 'Review it before applying with git apply --check.'
+    end
+    if git -C "$storage_root" cat-file -e "$handoff_commit:$handoff_relative_dir/source-status.txt" 2>/dev/null
+        printf '%s\n' "Source status: $handoff_url/source-status.txt"
+    end
+else
+    printf '%s\n' "Transcript: $handoff_dir/transcript.md"
+    if test -f "$handoff_dir/source.patch"
+        printf '%s\n' "Tracked source patch: $handoff_dir/source.patch"
+        printf '%s\n' 'Review it before applying with git apply --check.'
+    end
 
-if test -s "$handoff_dir/source-status.txt"
-    printf '%s\n' "Source status: $handoff_dir/source-status.txt"
+    if test -s "$handoff_dir/source-status.txt"
+        printf '%s\n' "Source status: $handoff_dir/source-status.txt"
+    end
 end
