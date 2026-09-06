@@ -1,13 +1,13 @@
 #!/usr/bin/env fish
 
-set -g expected_handoff_repo 'grimmely/sapiom-pair-codex-sessions'
+set -g expected_handoff_repo 'grimmely/pair-codex-handoffs'
 set -g warning_threshold_bytes 52428800
 set -g maximum_handoff_bytes 104857600
 set -g tar_overhead_reserve_bytes 65536
 
 function usage
     printf '%s\n' 'Usage:'
-    printf '%s\n' '  fish scripts/handoff.fish --handoff-repo <path> --source-repo <path> [--session-id <id>] [--note <text>]'
+    printf '%s\n' '  fish scripts/handoff.fish --handoff-repo <path> --source-repo <path> [--codex-home <path>] [--session-id <id>] [--note <text>]'
 end
 
 function fail
@@ -42,7 +42,7 @@ end
 function github_slug_from_remote --argument-names remote_url
     set slug (string replace -r '^git@github\.com:' '' -- "$remote_url")
     set slug (string replace -r '^ssh://git@github\.com/' '' -- "$slug")
-    set slug (string replace -r '^https?://([^/@]+@)?github\.com/' '' -- "$slug")
+    set slug (string replace -r '^https://([^/@]+@)?github\.com/' '' -- "$slug")
     set slug (string replace -r '\.git$' '' -- "$slug")
 
     if string match -rq '^[^/]+/[^/]+$' -- "$slug"
@@ -64,8 +64,8 @@ function display_remote_url --argument-names remote_url
     printf '%s\n' "$display_url"
 end
 
-function session_cwd --argument-names session_id
-    set inspection_lines (codex-session-exporter inspect "$session_id")
+function session_cwd --argument-names session_id codex_home
+    set inspection_lines (codex-session-exporter inspect "$session_id" --codex-home "$codex_home")
     or return 1
     set inspection (string join \n -- $inspection_lines)
     set encoded_cwd (string match -r --groups-only '"cwd"[[:space:]]*:[[:space:]]*"([^"]*)"' -- "$inspection")
@@ -91,8 +91,8 @@ function path_is_within --argument-names candidate parent
     test (string sub -s 1 -l "$prefix_length" -- "$candidate") = "$prefix"
 end
 
-function session_matches_source --argument-names session_id source_root
-    set candidate_cwd (session_cwd "$session_id")
+function session_matches_source --argument-names session_id source_root codex_home
+    set candidate_cwd (session_cwd "$session_id" "$codex_home")
     or return 1
     path_is_within "$candidate_cwd" "$source_root"
 end
@@ -200,6 +200,7 @@ argparse \
     'h/help' \
     'handoff-repo=' \
     'source-repo=' \
+    'codex-home=' \
     'session-id=' \
     'note=' \
     -- $argv
@@ -225,6 +226,19 @@ end
 
 for command_name in codex-session-exporter git tar gh
     require_command "$command_name"
+end
+
+set requested_codex_home "$HOME/.codex"
+if set -q CODEX_HOME
+    set requested_codex_home "$CODEX_HOME"
+end
+if set -q _flag_codex_home
+    set requested_codex_home "$_flag_codex_home"
+end
+
+set codex_home (path resolve -- "$requested_codex_home")
+if not set -q codex_home[1]; or not test -d "$codex_home"
+    fail "Codex home does not exist: $requested_codex_home"
 end
 
 if not test -d "$_flag_handoff_repo"
@@ -294,13 +308,13 @@ set session_id
 if set -q _flag_session_id
     set session_id "$_flag_session_id"
 else
-    set session_lines (codex-session-exporter list --limit 50)
+    set session_lines (codex-session-exporter list --limit 50 --codex-home "$codex_home")
     or fail 'Could not list local Codex sessions.'
 
     for session_line in $session_lines
         set candidate_id (string split \t -- "$session_line")[1]
         if string match -rq '^[0-9A-Fa-f-]{36}$' -- "$candidate_id"
-            if session_matches_source "$candidate_id" "$source_root"
+            if session_matches_source "$candidate_id" "$source_root" "$codex_home"
                 set session_id "$candidate_id"
                 break
             end
@@ -316,7 +330,7 @@ if not string match -rq '^[0-9A-Fa-f-]{36}$' -- "$session_id"
     fail "Invalid session ID: $session_id"
 end
 
-if not session_matches_source "$session_id" "$source_root"
+if not session_matches_source "$session_id" "$source_root" "$codex_home"
     fail "Session is not rooted in source repository: $source_root"
 end
 
@@ -440,13 +454,13 @@ set transcript_path "$staged_handoff_dir/transcript.md"
 set bundle_dir "$staging_dir/session.codex-session"
 set bundle_archive "$staged_handoff_dir/session.codex-session.tar.gz"
 
-codex-session-exporter export md "$session_id" --output "$transcript_path"
+codex-session-exporter export md "$session_id" --output "$transcript_path" --codex-home "$codex_home"
 or begin
     cleanup_staging "$staging_dir"
     fail 'Could not export the readable transcript.'
 end
 
-codex-session-exporter export bundle "$session_id" --output "$bundle_dir"
+codex-session-exporter export bundle "$session_id" --output "$bundle_dir" --codex-home "$codex_home"
 or begin
     cleanup_staging "$staging_dir"
     fail 'Could not export the importable bundle.'

@@ -1,4 +1,4 @@
-# Sapiom pair Codex sessions
+# Pair Codex Handoffs
 
 Private, Git-backed async handoffs for two Codex collaborators.
 
@@ -15,7 +15,8 @@ state needed to continue work after a sleep-cycle handoff.
 - `codex-session-exporter` in `PATH`
 
 The sender verifies that `origin`, every `origin.pushurl`, and GitHub privacy
-all resolve to `grimmely/sapiom-pair-codex-sessions` before exporting anything.
+all resolve to `grimmely/pair-codex-handoffs` before exporting anything.
+The handoff remote must use SSH or HTTPS; plaintext HTTP is rejected.
 
 ## Send a handoff
 
@@ -23,8 +24,9 @@ From this repository's root:
 
 ```fish
 fish scripts/handoff.fish \
-  --handoff-repo /path/to/sapiom-pair-codex-sessions \
+  --handoff-repo /path/to/pair-codex-handoffs \
   --source-repo /path/to/project \
+  --codex-home /path/to/codex-home \
   --note "Continue the payment retry work."
 ```
 
@@ -34,8 +36,9 @@ explicitly, pass its ID; the same project-boundary check still applies.
 
 ```fish
 fish scripts/handoff.fish \
-  --handoff-repo /path/to/sapiom-pair-codex-sessions \
+  --handoff-repo /path/to/pair-codex-handoffs \
   --source-repo /path/to/project \
+  --codex-home /path/to/codex-home \
   --session-id <session-id>
 ```
 
@@ -67,8 +70,9 @@ repository's root:
 
 ```fish
 fish scripts/receive.fish \
-  --handoff-dir /path/to/sapiom-pair-codex-sessions/handoffs/YYYY/MM/<id> \
-  --target-cwd /path/to/project
+  --handoff-dir /path/to/pair-codex-handoffs/handoffs/YYYY/MM/<id> \
+  --target-cwd /path/to/project \
+  --codex-home /path/to/codex-home
 ```
 
 Before import, the receiver copies the archive to a private temporary
@@ -82,6 +86,10 @@ directory and accepts only the exact expected bundle tree:
 
 It never checks out a commit or applies `source.patch` automatically. Review
 the patch, then run `git apply --check` before any manual apply.
+
+`--codex-home` selects the Codex session store. It defaults to `CODEX_HOME`
+when set, otherwise `~/.codex`. Omit it for that default. Pass it explicitly
+when running from a shell outside the Codex process, such as Pair Codex Sessions.
 
 ## Storage and privacy
 

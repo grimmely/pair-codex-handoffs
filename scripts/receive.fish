@@ -2,7 +2,7 @@
 
 function usage
     printf '%s\n' 'Usage:'
-    printf '%s\n' '  fish scripts/receive.fish --handoff-dir <path> --target-cwd <source-project-path>'
+    printf '%s\n' '  fish scripts/receive.fish --handoff-dir <path> --target-cwd <source-project-path> [--codex-home <path>]'
 end
 
 function fail
@@ -252,7 +252,7 @@ console.log(sessionId);
 ' "$bundle_dir"
 end
 
-argparse 'h/help' 'handoff-dir=' 'target-cwd=' -- $argv
+argparse 'h/help' 'handoff-dir=' 'target-cwd=' 'codex-home=' -- $argv
 or begin
     usage
     exit 2
@@ -275,6 +275,19 @@ end
 
 for command_name in codex-session-exporter tar node cp mktemp
     require_command "$command_name"
+end
+
+set requested_codex_home "$HOME/.codex"
+if set -q CODEX_HOME
+    set requested_codex_home "$CODEX_HOME"
+end
+if set -q _flag_codex_home
+    set requested_codex_home "$_flag_codex_home"
+end
+
+set codex_home (path resolve -- "$requested_codex_home")
+if not set -q codex_home[1]; or not test -d "$codex_home"
+    fail "Codex home does not exist: $requested_codex_home"
 end
 
 if not test -d "$_flag_handoff_dir"
@@ -351,12 +364,12 @@ if not set -q imported_session_id[1]
     fail 'Bundle manifest failed path-safety validation.'
 end
 
-if codex-session-exporter inspect "$imported_session_id" >/dev/null 2>&1
+if codex-session-exporter inspect "$imported_session_id" --codex-home "$codex_home" >/dev/null 2>&1
     cleanup_extraction "$extraction_dir"
     fail "A local Codex session already uses this ID: $imported_session_id"
 end
 
-codex-session-exporter import bundle "$bundle_dir" --target-cwd "$target_cwd"
+codex-session-exporter import bundle "$bundle_dir" --target-cwd "$target_cwd" --codex-home "$codex_home"
 set import_status $status
 
 cleanup_extraction "$extraction_dir"
