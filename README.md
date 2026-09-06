@@ -30,9 +30,7 @@ plaintext in Git: compression saves space; it does not encrypt content.
 ### Complete Codex setup
 
 ```fish
-git clone https://github.com/grimmely/pair-codex-setup.git
-cd pair-codex-setup
-bash install.sh
+curl -fsSL https://raw.githubusercontent.com/grimmely/pair-codex-setup/main/bootstrap.sh | bash
 ```
 
 The installer asks for the private storage repository, validates it, installs
