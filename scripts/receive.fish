@@ -125,8 +125,6 @@ const maximumBytes = 100 * 1024 * 1024;
 const expectedEntries = new Map([
   ["session.codex-session/", "directory"],
   ["session.codex-session/manifest.json", "file"],
-  ["session.codex-session/transcript.md", "file"],
-  ["session.codex-session/transcript.html", "file"],
   ["session.codex-session/raw/", "directory"],
   ["session.codex-session/raw/session.jsonl", "file"],
   ["session.codex-session/raw/thread.json", "file"],
@@ -306,7 +304,7 @@ const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const rolloutPattern = /^(?:sessions|archived_sessions)\/\d{4}\/\d{2}\/\d{2}\/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
 const rolloutMatch = rolloutPath.match(rolloutPattern);
 
-if (manifest.formatVersion !== 1) {
+if (manifest.formatVersion !== 2) {
   throw new Error("Unsupported bundle format version.");
 }
 if (!sessionIdPattern.test(sessionId)) {
@@ -317,13 +315,11 @@ if (!rolloutMatch || rolloutMatch[1] !== sessionId) {
 }
 
 const safeManifest = {
-  formatVersion: 1,
+  formatVersion: 2,
   sessionId,
   files: {
     dynamicToolsJson: "raw/thread-dynamic-tools.json",
-    htmlTranscript: "transcript.html",
     indexRecordJson: "raw/index-record.json",
-    markdownTranscript: "transcript.md",
     sessionJsonl: "raw/session.jsonl",
     threadJson: "raw/thread.json",
   },
@@ -456,6 +452,8 @@ or exit 1
 for command_name in codex-session-exporter tar node cp mktemp git gh
     require_command "$command_name"
 end
+pair_handoff_require_minimal_bundle_exporter
+or exit 1
 
 set requested_codex_home "$HOME/.codex"
 if set -q CODEX_HOME
@@ -612,8 +610,6 @@ end
 set bundle_dir "$extraction_dir/session.codex-session"
 for required_file in \
     manifest.json \
-    transcript.md \
-    transcript.html \
     raw/session.jsonl \
     raw/thread.json \
     raw/thread-dynamic-tools.json \
@@ -653,22 +649,14 @@ end
 if test "$handoff_source_type" = git
     set handoff_url "https://github.com/$storage_repo/tree/$handoff_commit/$handoff_relative_dir"
     printf '%s\n' "Handoff: $handoff_url"
-    printf '%s\n' "Transcript: $handoff_url/transcript.md"
     if git -C "$storage_root" cat-file -e "$handoff_commit:$handoff_relative_dir/source.patch" 2>/dev/null
         printf '%s\n' "Tracked source patch: $handoff_url/source.patch"
         printf '%s\n' 'Review it before applying with git apply --check.'
     end
-    if git -C "$storage_root" cat-file -e "$handoff_commit:$handoff_relative_dir/source-status.txt" 2>/dev/null
-        printf '%s\n' "Source status: $handoff_url/source-status.txt"
-    end
 else
-    printf '%s\n' "Transcript: $handoff_dir/transcript.md"
+    printf '%s\n' "Handoff: $handoff_dir"
     if test -f "$handoff_dir/source.patch"
         printf '%s\n' "Tracked source patch: $handoff_dir/source.patch"
         printf '%s\n' 'Review it before applying with git apply --check.'
-    end
-
-    if test -s "$handoff_dir/source-status.txt"
-        printf '%s\n' "Source status: $handoff_dir/source-status.txt"
     end
 end

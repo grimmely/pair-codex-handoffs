@@ -7,8 +7,8 @@ description: "Send, receive, inspect, or configure private async pair-programmin
 
 Use this skill for private, Git-backed async pair handoffs. The public tool
 never stores session material; bundles go only to user-configured private
-storage. Use storage shared only with trusted pair writers: transcript and
-conversation content remains collaborator-provided data.
+storage. Use storage shared only with trusted pair writers: conversation
+content remains collaborator-provided data.
 
 Current supported harnesses:
 
@@ -78,7 +78,7 @@ Only `codex` currently supports session export. For a send:
 
 1. Resolve current Git root; ask for source path only if unavailable.
 2. State selected source root, `codex` harness, and that tracked changes are
-   captured while untracked contents are only listed.
+   captured as `source.patch` while untracked contents are excluded.
 3. Ask for a concise sender note when missing.
 4. Show the exact command and explain it exports, commits to private storage,
    and pushes a share URL. Request confirmation immediately before execution.
@@ -101,9 +101,9 @@ For a receive:
    outside storage, `..` segments, and URLs outside configured storage.
    A commit URL must be reachable from storage `main`; import its exact
    committed bundle rather than a later version of that directory.
-3. Inspect `HANDOFF.md`, source status, and source patch before import.
+3. Inspect `HANDOFF.md` and source patch before import.
 4. Resolve target Git root; ask for target path only if unavailable.
-5. Show handoff identity, target root, transcript, and patch path. Request
+5. Show handoff identity, target root, and patch path. Request
    confirmation immediately before import.
 6. Run:
 

@@ -120,9 +120,7 @@ function handoff_size_is_safe --argument-names handoff_dir
 
     for artifact_path in \
         "$handoff_dir/HANDOFF.md" \
-        "$handoff_dir/transcript.md" \
         "$handoff_dir/session.codex-session.tar.gz" \
-        "$handoff_dir/source-status.txt" \
         "$handoff_dir/source.patch"
         if not test -f "$artifact_path"
             continue
@@ -153,8 +151,6 @@ function bundle_size_is_safe --argument-names bundle_dir
 
     for relative_file in \
         manifest.json \
-        transcript.md \
-        transcript.html \
         raw/session.jsonl \
         raw/thread.json \
         raw/thread-dynamic-tools.json \
@@ -175,7 +171,7 @@ function bundle_size_is_safe --argument-names bundle_dir
         set total_bytes (math "$total_bytes + $file_bytes")
     end
 
-    # Seven files, two directories, padding, and tar end blocks fit in 64 KiB.
+    # Five files, two directories, padding, and tar end blocks fit in 64 KiB.
     set maximum_payload_bytes (math "$maximum_handoff_bytes - $tar_overhead_reserve_bytes")
     if test "$total_bytes" -gt "$maximum_payload_bytes"
         printf 'error: Uncompressed session bundle leaves too little room for tar metadata.\n' >&2
@@ -187,8 +183,6 @@ function archive_layout_is_safe --argument-names archive_path
     set expected_entries \
         session.codex-session/ \
         session.codex-session/manifest.json \
-        session.codex-session/transcript.md \
-        session.codex-session/transcript.html \
         session.codex-session/raw/ \
         session.codex-session/raw/session.jsonl \
         session.codex-session/raw/thread.json \
@@ -247,6 +241,8 @@ or exit 1
 for command_name in codex-session-exporter git tar gh
     require_command "$command_name"
 end
+pair_handoff_require_minimal_bundle_exporter
+or exit 1
 
 set requested_codex_home "$HOME/.codex"
 if set -q CODEX_HOME
@@ -412,13 +408,6 @@ or begin
     fail 'Could not create a temporary handoff directory.'
 end
 
-set source_status "$staged_handoff_dir/source-status.txt"
-git -C "$source_root" status --short > "$source_status"
-or begin
-    cleanup_staging "$staging_dir"
-    fail 'Could not capture source repository status.'
-end
-
 set source_patch "$staged_handoff_dir/source.patch"
 if test "$source_commit" = '(unborn)'
     set empty_tree (git -C "$source_root" hash-object -t tree /dev/null)
@@ -473,26 +462,18 @@ begin
     printf '%s\n' '## Receiver'
     printf '%s\n' ''
     printf '%s\n' "$receiver_commit_step"
-    printf '%s\n' '2. Read `transcript.md` for working context.'
-    printf '%s\n' '3. Review `source.patch` before applying it, if present.'
-    printf '%s\n' '4. Run `receive.fish` to import the Codex bundle.'
+    printf '%s\n' '2. Review `source.patch` before applying it, if present.'
+    printf '%s\n' '3. Run `receive.fish` to import the Codex bundle.'
     printf '%s\n' ''
-    printf '%s\n' 'Untracked source files are listed in `source-status.txt`; they are not copied.'
+    printf '%s\n' 'Untracked source files are not included.'
 end > "$staged_handoff_dir/HANDOFF.md"
 or begin
     cleanup_staging "$staging_dir"
     fail 'Could not write handoff instructions.'
 end
 
-set transcript_path "$staged_handoff_dir/transcript.md"
 set bundle_dir "$staging_dir/session.codex-session"
 set bundle_archive "$staged_handoff_dir/session.codex-session.tar.gz"
-
-codex-session-exporter export md "$session_id" --output "$transcript_path" --codex-home "$codex_home"
-or begin
-    cleanup_staging "$staging_dir"
-    fail 'Could not export the readable transcript.'
-end
 
 codex-session-exporter export bundle "$session_id" --output "$bundle_dir" --codex-home "$codex_home"
 or begin

@@ -2,9 +2,9 @@
 
 Public, Fish-based tooling for private async pair-programming handoffs.
 
-The tool creates a readable work summary, a compressed resumable session, and
-a source-state patch. It pushes those files only to **your private storage
-repository** and returns a GitHub URL for your pair.
+The tool creates a compressed resumable session and optional tracked-source
+patch. It pushes those files only to **your private storage repository** and
+returns a GitHub URL for your pair.
 
 Use [Pair Codex Setup](https://github.com/grimmely/pair-codex-setup) for the
 complete Codex pairing environment. This repository also works standalone and
@@ -25,8 +25,8 @@ If the repository already has Git content, the tool leaves it untouched and
 requires `main` to be its default branch. Do not have two people initialize
 the same storage repository concurrently.
 
-The tool refuses public repositories. Archives, transcripts, and patches are
-plaintext in Git: compression saves space; it does not encrypt content.
+The tool refuses public repositories. Archives and patches are plaintext in
+Git: compression saves space; it does not encrypt content.
 
 ## Install paths
 
@@ -40,6 +40,12 @@ The installer asks for the private storage repository, validates it, installs
 the tool and `handoff` skill, then configures the local storage checkout.
 
 ### Standalone tool
+
+Install `codex-session-exporter` 0.2.0 or newer first:
+
+```fish
+curl -fsSL https://raw.githubusercontent.com/GrimalDev/codex-session-exporter/main/scripts/install-from-github.sh | bash
+```
 
 ```fish
 git clone https://github.com/grimmely/pair-codex-handoffs.git
@@ -122,20 +128,22 @@ handoffs/
         DD/
           <timestamp>-<session-id>/
             HANDOFF.md
-            transcript.md
             session.codex-session.tar.gz
-            source-status.txt
             source.patch                # only when tracked changes exist
 ```
 
 Every handoff becomes one commit on `main`. The generated share URL points to
 that commit in your private storage repository.
 
+The compressed bundle contains only data required to restore the Codex session.
+Export Markdown or HTML separately when a readable artifact is needed.
+
 ## Safety model
 
 - Share storage only with trusted pair writers; imported conversation content is
   collaborator-provided data.
-- Requires `fish`, `git`, `gh`, `tar`, Node.js, and `codex-session-exporter`.
+- Requires `fish`, `git`, `gh`, `tar`, Node.js, and
+  `codex-session-exporter` 0.2.0 or newer.
 - Validates configured storage remote, every push URL, private visibility, and
   `main` before sending or receiving.
 - Refuses paths outside the selected harness directory.
