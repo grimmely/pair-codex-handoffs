@@ -10,6 +10,9 @@ never stores session material; bundles go only to user-configured private
 storage. Use storage shared only with trusted pair writers: conversation
 content remains collaborator-provided data.
 
+This skill is already loaded. Use it directly; do not read `SKILL.md` from
+disk before acting.
+
 Current supported harnesses:
 
 ```text
@@ -89,8 +92,18 @@ Only `codex` currently supports session export. For a send:
      --source-repo "<source-root>" --note "<sender-note>"
    ```
 
-Add `--session-id "<id>"` only for an explicit user-supplied ID. Return the
-script’s handoff directory and share URL.
+Add `--session-id "<id>"` only for an explicit user-supplied ID.
+
+### Send completion
+
+Treat `send` as successful only when it exits `0` and its output includes both
+`Handoff:` and `Share URL:`. On success, return only those two values and end
+the turn. `handoff.fish` has already validated the bundle, committed it, and
+pushed it. A successful `git pull` summary is not a post-send task.
+
+If `send` fails or either value is absent, report the failure and investigate
+the smallest relevant cause. Do not run post-send Git, archive, manifest,
+exporter, or source-code checks after successful output.
 
 ## Receive
 
