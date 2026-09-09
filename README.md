@@ -174,8 +174,10 @@ Export Markdown or HTML separately when a readable artifact is needed.
 - Receives commit URLs only from configured `main` history and materializes
   the exact committed bundle, never a later working-tree replacement.
 - Warns above 50 MiB and refuses handoffs at 100 MiB.
-- Validates the compressed bundle before import; refuses symbolic links,
-  unexpected archive entries, unsafe paths, and existing session IDs.
+- Writes `ustar` archives with macOS metadata disabled. Sender and receiver
+  use the same structural validation before upload and extraction, refusing
+  symbolic links, unexpected entries, and unsafe paths. Import also refuses
+  existing session IDs.
 - Strips sender approval, sandbox, permission, and network policy from an
   imported session; receiver policy remains local.
 - Never checks out sender commits or applies `source.patch` automatically.

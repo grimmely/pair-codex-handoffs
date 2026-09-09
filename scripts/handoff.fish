@@ -3,6 +3,7 @@
 set script_dir (path dirname (status filename))
 source "$script_dir/lib/harnesses.fish"
 source "$script_dir/lib/storage.fish"
+source "$script_dir/lib/archive.fish"
 
 set -g warning_threshold_bytes 52428800
 set -g maximum_handoff_bytes 104857600
@@ -181,35 +182,6 @@ function bundle_size_is_safe --argument-names bundle_dir
     end
 end
 
-function archive_layout_is_safe --argument-names archive_path
-    set expected_entries \
-        session.codex-session/ \
-        session.codex-session/manifest.json \
-        session.codex-session/raw/ \
-        session.codex-session/raw/session.jsonl \
-        session.codex-session/raw/thread.json \
-        session.codex-session/raw/thread-dynamic-tools.json \
-        session.codex-session/raw/index-record.json
-    set archive_entries (tar -tzf "$archive_path")
-    or return 1
-
-    if test (count $archive_entries) -ne (count $expected_entries)
-        return 1
-    end
-
-    for expected_entry in $expected_entries
-        if not contains -- "$expected_entry" $archive_entries
-            return 1
-        end
-    end
-
-    for archive_entry in $archive_entries
-        if not contains -- "$archive_entry" $expected_entries
-            return 1
-        end
-    end
-end
-
 argparse \
     'h/help' \
     'harness=' \
@@ -240,7 +212,7 @@ end
 pair_handoff_require_supported_harness "$harness"
 or exit 1
 
-for command_name in codex-session-exporter git tar gh
+for command_name in codex-session-exporter git tar gh node
     require_command "$command_name"
 end
 pair_handoff_require_minimal_bundle_exporter
@@ -493,16 +465,16 @@ or begin
     fail 'Importable session bundle is too large to receive safely.'
 end
 
-tar -C "$staging_dir" -czf "$bundle_archive" session.codex-session
+pair_handoff_compress_bundle "$staging_dir" "$bundle_archive"
 or begin
     cleanup_staging "$staging_dir"
     fail 'Could not compress the importable bundle.'
 end
 
-archive_layout_is_safe "$bundle_archive"
+pair_handoff_validate_archive "$bundle_archive"
 or begin
     cleanup_staging "$staging_dir"
-    fail 'Compressed bundle does not match the supported session layout.'
+    fail 'Compressed bundle failed structural safety checks.'
 end
 
 command rm -rf "$bundle_dir"
