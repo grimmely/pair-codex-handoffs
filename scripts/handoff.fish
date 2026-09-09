@@ -11,6 +11,8 @@ set -g tar_overhead_reserve_bytes 65536
 function usage
     printf '%s\n' 'Usage:'
     printf '%s\n' '  fish scripts/pair-handoff.fish send --source-repo <path> [--harness codex] [--codex-home <path>] [--session-id <id>] [--note <text>]'
+    printf '%s\n' '  --session-id selects a session regardless of its starting directory.'
+    printf '%s\n' '  Without it, select the newest of 50 recent sessions rooted in --source-repo.'
 end
 
 function fail
@@ -356,7 +358,11 @@ if not string match -rq '^[0-9A-Fa-f-]{36}$' -- "$session_id"
     fail "Invalid session ID: $session_id"
 end
 
-if not session_matches_source "$session_id" "$source_root" "$codex_home"
+if set -q _flag_session_id
+    # Explicit selection associates the conversation with the chosen source repo.
+    codex-session-exporter inspect "$session_id" --codex-home "$codex_home" >/dev/null
+    or fail "Could not inspect selected Codex session: $session_id"
+else if not session_matches_source "$session_id" "$source_root" "$codex_home"
     fail "Session is not rooted in source repository: $source_root"
 end
 

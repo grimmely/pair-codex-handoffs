@@ -122,6 +122,16 @@ fish scripts/pair-handoff.fish receive \
 `send` uses the active `CODEX_HOME`, or `~/.codex` when unset. Add
 `--codex-home /path/to/codex-home` for a shell outside that environment.
 
+To send a particular session, add `--session-id SESSION_ID`. Its starting
+directory may be outside the repository, for example its parent folder.
+`--source-repo` still selects the Git metadata and tracked patch to attach.
+The session must exist in the selected Codex home.
+
+Without `--session-id`, the sender selects the newest matching session from
+the 50 most recent sessions, requiring its starting directory to be inside
+the source repository. The `handoff` skill passes the current session ID when
+available and confirms the session and repository together before sending.
+
 ## Supported harnesses
 
 | Harness | Session export and import | Native command |

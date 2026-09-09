@@ -80,8 +80,11 @@ harnesses. If storage is absent or unhealthy, offer `handoff configure`.
 Only `codex` currently supports session export. For a send:
 
 1. Resolve current Git root; ask for source path only if unavailable.
-2. State selected source root, `codex` harness, and that tracked changes are
-   captured as `source.patch` while untracked contents are excluded.
+2. Use a user-supplied session ID when given; otherwise use the current session
+   ID from the harness context or `CODEX_THREAD_ID` when available. Pass that ID
+   explicitly, even when the session started outside the source repository.
+   State selected session ID, source root, `codex` harness, and that tracked
+   changes are captured as `source.patch` while untracked contents are excluded.
 3. Ask for a concise sender note when missing.
 4. Show the exact command and explain it exports, commits to private storage,
    and pushes a share URL. Request confirmation immediately before execution.
@@ -89,10 +92,16 @@ Only `codex` currently supports session export. For a send:
 
    ```fish
    fish "<dispatcher>" send --harness codex \
+     --session-id "<selected-session-id>" \
      --source-repo "<source-root>" --note "<sender-note>"
    ```
 
-Add `--session-id "<id>"` only for an explicit user-supplied ID.
+The existing send confirmation covers both the selected conversation and the
+source repository; a different starting directory needs no additional prompt.
+If the current session ID is unavailable, omit `--session-id` to use repository-
+filtered discovery. If discovery fails, list sessions with the exporter and ask
+the user to select one. Never substitute an unrelated session just because it
+is newest. An explicit session ID must still exist in the selected Codex home.
 
 ### Send completion
 
