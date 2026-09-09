@@ -1,4 +1,4 @@
-# Pair Codex Handoffs
+# pair-codex-handoffs
 
 Public, Fish-based tooling for private async pair-programming handoffs.
 
@@ -6,7 +6,7 @@ The tool creates a compressed resumable session and optional tracked-source
 patch. It pushes those files only to **your private storage repository** and
 returns a GitHub URL for your pair.
 
-Use [Pair Codex Setup](https://github.com/grimmely/pair-codex-setup) for the
+Use [pair-codex-setup](https://github.com/grimmely/pair-codex-setup) for the
 complete Codex pairing environment. This repository also works standalone and
 ships a reusable `handoff` skill.
 
@@ -30,18 +30,32 @@ Git: compression saves space; it does not encrypt content.
 
 ## Install paths
 
+### Skills and tools for an existing Codex setup
+
+```fish
+curl -fsSL https://raw.githubusercontent.com/grimmely/pair-codex-setup/main/bootstrap.sh | bash -s -- --skills-only
+```
+
+Installs the global pairing skills, this handoff tool, and our
+[`GrimalDev/codex-session-exporter`](https://github.com/GrimalDev/codex-session-exporter)
+fork. Codex configuration and plugins stay untouched. Start a new Codex session,
+then use `$handoff configure` to select your private storage repository.
+See [setup prerequisites](https://github.com/grimmely/pair-codex-setup#before-installation)
+for required commands and versions.
+
 ### Complete Codex setup
 
 ```fish
 curl -fsSL https://raw.githubusercontent.com/grimmely/pair-codex-setup/main/bootstrap.sh | bash
 ```
 
-The installer asks for the private storage repository, validates it, installs
-the tool and `handoff` skill, then configures the local storage checkout.
+The installer installs the exporter fork automatically, asks for the private
+storage repository, installs the tool and `handoff` skill, then configures
+the local storage checkout.
 
 ### Standalone tool
 
-Install `codex-session-exporter` 0.2.0 or newer first:
+Install our `GrimalDev/codex-session-exporter` fork, version 0.2.0 or newer, first:
 
 ```fish
 curl -fsSL https://raw.githubusercontent.com/GrimalDev/codex-session-exporter/main/scripts/install-from-github.sh | bash
@@ -74,7 +88,7 @@ install or skill refresh.
 
 ## Use from Codex
 
-After Pair Codex Setup, choose `handoff` from Codex’s slash-command list or
+After `pair-codex-setup`, choose `handoff` from Codex's slash-command list or
 type `$handoff`. Ask it to send, receive, inspect status, or configure storage.
 It asks for confirmation immediately before cloning, importing, committing, or
 pushing.
